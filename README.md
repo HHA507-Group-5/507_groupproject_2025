@@ -14,7 +14,6 @@
 
 ## Project structure overview
 
-testing
 
 
  
