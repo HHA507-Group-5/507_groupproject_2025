@@ -11,6 +11,11 @@ sql_password = os.getenv("password")
 sql_host     = os.getenv("hostname")
 sql_database = os.getenv("database")
 
+sql_username = os.getenv('db_username')
+sql_password = os.getenv('db_password')
+sql_host = os.getenv('db_hostname')
+sql_database = os.getenv('db_database')
+
 if not all([sql_username, sql_password, sql_host, sql_database]):
     raise ValueError("Missing one or more database environment variables.")
 
