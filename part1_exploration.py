@@ -6,11 +6,6 @@ from dotenv import load_dotenv
 # Loading environment variables from .env file
 load_dotenv()
 
-sql_username = os.getenv("username")
-sql_password = os.getenv("password")
-sql_host     = os.getenv("hostname")
-sql_database = os.getenv("database")
-
 sql_username = os.getenv('db_username')
 sql_password = os.getenv('db_password')
 sql_host = os.getenv('db_hostname')
@@ -64,7 +59,7 @@ def data_quality_assessment():
     print("\nRecord count by data source:")
     print(pd.read_sql(q4, engine))
 
-    # 5. Invalid names (use alias row_count instead of reserved word 'rows')
+    # 5. Invalid names
     q5 = f"""
         SELECT playername, COUNT(*) AS row_count
         FROM {TABLE}
