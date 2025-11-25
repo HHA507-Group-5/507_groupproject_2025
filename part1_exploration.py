@@ -118,6 +118,44 @@ def metric_discovery():
     print("\nTotal unique metrics across all sources:")
     print(unique_df)
 
+# For each data source, show date range + record count for TOP metrics
+    def metric_summary_for_source(source, top_df):
+        if top_df.empty:
+            return None
+
+        # Build a safe IN (...) list with proper quoting and escaping
+        metrics = top_df["metric"].tolist()
+
+        # Escape single quotes and % for each metric name
+        escaped_metrics = [
+            m.replace("'", "''").replace("%", "%%") for m in metrics
+        ]
+
+        # Build: ('metric1','metric2',...)
+        metrics_sql = "(" + ",".join(f"'{m}'" for m in escaped_metrics) + ")"
+
+        q = f"""
+            SELECT
+                metric,
+                COUNT(*) AS record_count,
+                MIN(timestamp) AS earliest_date,
+                MAX(timestamp) AS latest_date
+            FROM {TABLE}
+            WHERE data_source = '{source}'
+              AND metric IN {metrics_sql}
+            GROUP BY metric
+            ORDER BY record_count DESC;
+        """
+
+        df = pd.read_sql(q, engine)
+        print(f"\nDate Range + Record Count for Top Metrics ({source}):")
+        print(df)
+        return df
+
+    hawkins_summary = metric_summary_for_source("hawkins", hawkins_top)
+    kinexon_summary = metric_summary_for_source("kinexon", kinexon_top)
+    vald_summary    = metric_summary_for_source("vald", vald_top)
+
 if __name__ == "__main__":
     preview_table()
     data_quality_assessment()
