@@ -1,308 +1,270 @@
+# ================================================================
+# PART 2 – DATA CLEANING & TRANSFORMATION (FULL WORKING VERSION)
+# ================================================================
+ 
 import os
 import pandas as pd
-import numpy as np
-from scipy.stats import zscore
+from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
-
-# =============================================================================
-# Database Connection
-# =============================================================================
-load_dotenv()  # load variables from .env
-
+ 
+# ------------------------------------------------
+# LOAD ENVIRONMENT VARIABLES + CONNECT TO DATABASE
+# ------------------------------------------------
+ 
+load_dotenv(".env")   # Make 100% sure .env is loaded
+ 
 sql_username = os.getenv("db_username")
 sql_password = os.getenv("db_password")
-sql_host = os.getenv("db_hostname")
+sql_host     = os.getenv("db_hostname")
 sql_database = os.getenv("db_database")
-
+ 
 if not all([sql_username, sql_password, sql_host, sql_database]):
-   raise ValueError("Missing one or more database environment variables.")
-
+    raise ValueError("Missing one or more database environment variables!")
+ 
+# Create DB URL
 url_string = f"mysql+pymysql://{sql_username}:{sql_password}@{sql_host}:3306/{sql_database}"
-
+ 
+# Table name
 TABLE = "research_experiment_refactor_test"
-
+ 
+# Connect
 engine = create_engine(url_string)
-
-def load_data() -> pd.DataFrame:
-   """
-   Load data from the MySQL table into a pandas DataFrame.
-   Assumes the table has at least:
-     - athlete
-     - metric
-     - value
-     - timestamp
-     - team
-     - sport
-   """
-   query = f"""
-       SELECT
-           athlete,
-           metric,
-           value,
-           timestamp,
-           team,
-           sport
-       FROM {TABLE}
-   """
-   df = pd.read_sql(query, con=engine)
-   return df
-
-# ---------------------------------------
-# Selected Metrics (with system sources)
-# ---------------------------------------
-# Hawkins
-JUMP_HEIGHT = "Jump Height (m)"
-PEAK_PROP_POWER = "Peak Propulsive Power (W)"
-# Kinexon
-TOTAL_DISTANCE = "Total Distance (distance_total)"
-ACCEL_LOAD = "Accumulated Acceleration Load (accel_load_accum)"
-# Vald Strength Testing
-MAX_FORCE_LR = "Max Force (MaxForce; left/right)"
+ 
+print(f"\nConnected successfully to database: {sql_database}")
+print(f"Using table: {TABLE}")
+ 
+# ------------------------------------------------
+# YOUR SELECTED METRICS (REPLACE ONLY IF NEEDED)
+# ------------------------------------------------
+ 
+VALUE_COL = "value"  # numeric column
+ 
 SELECTED_METRICS = [
-   JUMP_HEIGHT,         # Hawkins
-   PEAK_PROP_POWER,     # Hawkins
-   TOTAL_DISTANCE,      # Kinexon
-   ACCEL_LOAD,          # Kinexon
-   MAX_FORCE_LR         # Vald
+    "Jump Height (m)",           # Hawkins
+    "Peak Propulsive Power (W)", # Hawkins
+    "distance_total",            # Kinexon
+    "accel_load_accum",          # Kinexon
+    "MaxForce_left",             # Vald
+    "MaxForce_right",            # Vald
 ]
-# =============================================================================
-# 2.1 Missing Data Analysis (Group)
-# =============================================================================
-def missing_data_summary(df: pd.DataFrame) -> pd.DataFrame:
-   """
-   For each selected metric:
-     - total rows
-     - rows with NULL or zero values
-     - percent missing/zero
-   """
-   summary = {}
-   df_sel = df[df["metric"].isin(SELECTED_METRICS)].copy()
-   for metric in SELECTED_METRICS:
-       metric_df = df_sel[df_sel["metric"] == metric]
-       total = len(metric_df)
-       missing = metric_df[metric_df["value"].isna() | (metric_df["value"] == 0)]
-       summary[metric] = {
-           "total_rows": total,
-           "missing_or_zero": len(missing),
-           "percent_missing": round(len(missing) / total * 100, 2)
-           if total > 0 else np.nan,
-       }
-   return pd.DataFrame(summary).T.sort_values("percent_missing", ascending=False)
-
-def athletes_with_min_measurements_by_sport(df: pd.DataFrame, min_tests: int = 5) -> pd.DataFrame:
-   """
-   For each sport, calculate what % of athletes have at least `min_tests`
-   measurements across the selected metrics.
-   """
-   df_sel = df[df["metric"].isin(SELECTED_METRICS)].copy()
-   counts = (
-       df_sel
-       .groupby(["sport", "athlete"])["timestamp"]
-       .count()
-       .reset_index(name="num_measurements")
-   )
-   counts["has_min"] = counts["num_measurements"] >= min_tests
-   result = (
-       counts.groupby("sport")["has_min"]
-       .mean()
-       .reset_index(name="percent_with_min")
-   )
-   result["percent_with_min"] *= 100
-   return result
-
-def athletes_with_min_measurements_by_sport_team(df: pd.DataFrame, min_tests: int = 5) -> pd.DataFrame:
-   """
-   For each sport/team, calculate what % of athletes have at least `min_tests`
-   measurements across the selected metrics.
-   """
-   df_sel = df[df["metric"].isin(SELECTED_METRICS)].copy()
-   counts = (
-       df_sel
-       .groupby(["sport", "team", "athlete"])["timestamp"]
-       .count()
-       .reset_index(name="num_measurements")
-   )
-   counts["has_min"] = counts["num_measurements"] >= min_tests
-   result = (
-       counts.groupby(["sport", "team"])["has_min"]
-       .mean()
-       .reset_index(name="percent_with_min")
-   )
-   result["percent_with_min"] *= 100
-   return result
-
-def athletes_missing_6_months(df: pd.DataFrame) -> pd.DataFrame:
-   """
-   Identify athletes who have NOT been tested in the last 6 months
-   for the selected metrics.
-   """
-   df_sel = df[df["metric"].isin(SELECTED_METRICS)].copy()
-   df_sel["timestamp"] = pd.to_datetime(df_sel["timestamp"])
-   # Last test per athlete (for selected metrics only)
-   latest = df_sel.groupby("athlete")["timestamp"].max().reset_index()
-   global_max = df_sel["timestamp"].max()
-   cutoff = global_max - pd.Timedelta(days=180)
-   latest["missing_6_months"] = latest["timestamp"] < cutoff
-   return latest[latest["missing_6_months"]]
-
-def check_sufficiency(df: pd.DataFrame, min_tests_per_metric: int = 5):
-   """
-   Simple heuristic for 'do we have enough data to answer the question?':
-     - For each athlete & each selected metric, count tests.
-     - An athlete is 'sufficient' if they have at least `min_tests_per_metric`
-       measurements for EVERY selected metric.
-   Returns:
-     per_athlete_sufficient: Series[bool] indexed by athlete
-     summary_stats: Series with simple summary %s
-   """
-   df_sel = df[df["metric"].isin(SELECTED_METRICS)].copy()
-   counts = (
-       df_sel
-       .groupby(["athlete", "metric"])["timestamp"]
-       .count()
-       .unstack("metric", fill_value=0)
-   )
-   # Booleans per athlete (True = enough data for all metrics)
-   per_athlete_sufficient = (counts >= min_tests_per_metric).all(axis=1)
-   summary_stats = pd.Series({
-       "num_athletes_total": int(counts.shape[0]),
-       "num_athletes_sufficient": int(per_athlete_sufficient.sum()),
-       "percent_athletes_sufficient": round(per_athlete_sufficient.mean() * 100, 2)
-           if counts.shape[0] > 0 else np.nan
-   })
-   return per_athlete_sufficient, summary_stats
-# =============================================================================
-# 2.2 Data Transformation Challenge (long -> wide)
-# =============================================================================
-def make_wide(df: pd.DataFrame, athlete_name: str, metrics=SELECTED_METRICS) -> pd.DataFrame:
-   """
-   Transform long -> wide for a single athlete:
-     - Input: df, athlete name, list of metrics
-     - Output: DataFrame with columns:
-         timestamp, [metrics...]
-       one row per test session
-     - Properly handles missing values: missing metric values will appear as NaN.
-   """
-   tmp = df[
-       (df["athlete"] == athlete_name)
-& (df["metric"].isin(metrics))
-   ].copy()
-   tmp["timestamp"] = pd.to_datetime(tmp["timestamp"])
-   wide = (
-       tmp.pivot_table(
-           index="timestamp",
-           columns="metric",
-           values="value",
-           aggfunc="mean"       # if multiple rows per timestamp/metric, average them
-       )
-       .reset_index()
-       .sort_values("timestamp")
-   )
-   # Ensure all selected metrics appear as columns, even if athlete never had that metric
-   for m in metrics:
-       if m not in wide.columns:
-           wide[m] = np.nan
-   # Reorder columns: timestamp first, then metrics
-   wide = wide[["timestamp"] + list(metrics)]
-   return wide
-# =============================================================================
-# 2.3 Derived Metric: Percent Difference vs Team Mean
-# =============================================================================
-def add_team_mean_and_diff(df: pd.DataFrame) -> pd.DataFrame:
-   """
-   For selected metrics:
-     - Calculate team mean per metric
-     - For each row, compute percent difference from team mean
-       (value - team_mean) / team_mean * 100
-   """
-   df_sel = df[df["metric"].isin(SELECTED_METRICS)].copy()
-   team_means = (
-       df_sel
-       .groupby(["team", "metric"])["value"]
-       .mean()
-       .reset_index(name="team_mean")
-   )
-   merged = df_sel.merge(team_means, on=["team", "metric"], how="left")
-   merged["percent_diff"] = (
-       (merged["value"] - merged["team_mean"]) / merged["team_mean"]
-   ) * 100
-   return merged
-
-def top_bottom_performers(df_with_diff: pd.DataFrame, top_n: int = 5):
-   """
-   Given a DataFrame with 'percent_diff' (from add_team_mean_and_diff),
-   identify top and bottom performers:
-     - Aggregated by athlete (mean percent_diff across selected metrics)
-     - Returns: (top_n, bottom_n) DataFrames
-   """
-   df_clean = df_with_diff[df_with_diff["metric"].isin(SELECTED_METRICS)].copy()
-   ranking = (
-       df_clean
-       .groupby("athlete")["percent_diff"]
-       .mean()
-       .reset_index()
-       .sort_values("percent_diff", ascending=False)
-   )
-   topN = ranking.head(top_n)
-   bottomN = ranking.tail(top_n)
-   return topN, bottomN
-
-def add_z_scores(df: pd.DataFrame) -> pd.DataFrame:
-   """
-   Optional: add z-scores by metric for selected metrics.
-   """
-   df_filtered = df[df["metric"].isin(SELECTED_METRICS)].copy()
-   df_filtered["z_score"] = (
-       df_filtered
-       .groupby("metric")["value"]
-       .transform(zscore)
-   )
-   return df_filtered
-
-# =============================================================================
-# Example MAIN EXECUTION (for demo/testing)
-# =============================================================================
-if __name__ == "__main__":
-   # Load your raw data from the DB instead of CSV
-   df = load_data()
-   # 2.1 Missing Data Analysis ----------------------------------------------
-   print("\n=== 2.1 Missing Data Analysis ===")
-   print("\n--- Missing Data Summary (sorted by % missing) ---")
-   mds = missing_data_summary(df)
-   print(mds)
-   print("\n--- % Athletes with ≥5 Measurements by Sport ---")
-   sport_pct = athletes_with_min_measurements_by_sport(df, min_tests=5)
-   print(sport_pct)
-   print("\n--- % Athletes with ≥5 Measurements by Sport & Team ---")
-   sport_team_pct = athletes_with_min_measurements_by_sport_team(df, min_tests=5)
-   print(sport_team_pct)
-   print("\n--- Athletes Missing ≥6 Months (Selected Metrics) ---")
-   miss6 = athletes_missing_6_months(df)
-   print(miss6)
-   print("\n--- Data Sufficiency Check (per athlete + summary) ---")
-   per_athlete_sufficient, suff_summary = check_sufficiency(df, min_tests_per_metric=5)
-   print("Per-athlete sufficiency (True = enough data for all selected metrics):")
-   print(per_athlete_sufficient.head())
-   print("\nSufficiency summary:")
-   print(suff_summary)
-   # 2.2 Data Transformation (long -> wide) --------------------------------
-   print("\n=== 2.2 Long -> Wide Transformation ===")
-   # Example: test on at least 3 players
-   athletes_to_test = ["PLAYER_001", "PLAYER_047", "PLAYER_139"]
-   for a in athletes_to_test:
-       print(f"\n--- Wide Format for {a} ---")
-       wide_a = make_wide(df, a, metrics=SELECTED_METRICS)
-       print(wide_a.head())
-   # 2.3 Derived Metric vs Team Mean ---------------------------------------
-   print("\n=== 2.3 Derived Metrics vs Team Averages ===")
-   df_with_diff = add_team_mean_and_diff(df)
-   top5, bottom5 = top_bottom_performers(df_with_diff, top_n=5)
-   print("\n--- Top 5 Performers (avg % diff vs team mean) ---")
-   print(top5)
-   print("\n--- Bottom 5 Performers (avg % diff vs team mean) ---")
-   print(bottom5)
-   # Optional z-scores example
-   print("\n--- Sample with Z-Scores (optional) ---")
-   df_z = add_z_scores(df)
-   print(df_z.head())
+ 
+# ------------------------------------------------
+# HELPER: Build SQL-safe
+# ------------------------------------------------
+ 
+def _build_metrics_in_clause(metrics):
+    escaped = [m.replace("'", "''").replace("%", "%%") for m in metrics]
+    return "(" + ",".join(f"'{m}'" for m in escaped) + ")"
+ 
+# ------------------------------------------------
+# 2.1 – MISSING DATA ANALYSIS
+# ------------------------------------------------
+ 
+def missing_data_analysis(selected_metrics):
+    print("\n===== PART 2.1 — Missing Data Analysis =====")
+ 
+    metrics_sql = _build_metrics_in_clause(selected_metrics)
+ 
+    # 1. Missing + zero counts
+    q_missing = f"""
+        SELECT
+            metric,
+            SUM(CASE WHEN {VALUE_COL} IS NULL THEN 1 ELSE 0 END) AS null_count,
+            SUM(CASE WHEN {VALUE_COL} = 0 THEN 1 ELSE 0 END) AS zero_count,
+            COUNT(*) AS total_rows
+        FROM {TABLE}
+        WHERE metric IN {metrics_sql}
+        GROUP BY metric
+        ORDER BY (null_count + zero_count) DESC;
+    """
+    missing_df = pd.read_sql(q_missing, engine)
+    print("\nNULL + ZERO counts by metric:")
+    print(missing_df)
+ 
+    # 2. % of athletes per team with >= 5 measurements
+    q_team = f"""
+        SELECT playername, team, metric, timestamp, {VALUE_COL} AS value
+        FROM {TABLE}
+        WHERE metric IN {metrics_sql}
+          AND playername IS NOT NULL AND TRIM(playername) <> ''
+          AND team IS NOT NULL AND TRIM(team) <> '';
+    """
+    df = pd.read_sql(q_team, engine)
+ 
+    if df.empty:
+        print("\nNo rows found for these metrics!")
+        return
+ 
+    counts = (
+        df.groupby(["team", "playername"])
+          .size()
+          .reset_index(name="n_measurements")
+    )
+    counts["has_5_plus"] = counts["n_measurements"] >= 5
+ 
+    team_summary = counts.groupby("team").agg(
+        total_athletes=("playername", "nunique"),
+        athletes_ge5=("has_5_plus", "sum")
+    )
+    team_summary["pct_with_5_plus"] = (
+        team_summary["athletes_ge5"] / team_summary["total_athletes"] * 100
+    )
+ 
+    print("\n% of athletes with ≥ 5 measurements per team:")
+    print(team_summary)
+ 
+    # 3. Not tested in last 6 months
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    last_test = df.groupby("playername")["timestamp"].max().reset_index()
+    cutoff = pd.Timestamp.today() - pd.DateOffset(months=6)
+ 
+    inactive = last_test[last_test["timestamp"] < cutoff]
+ 
+    # add team
+    latest_team = (
+        df.sort_values("timestamp")
+          .drop_duplicates("playername", keep="last")[["playername", "team"]]
+    )
+    inactive = inactive.merge(latest_team, on="playername", how="left")
+ 
+    print(f"\nAthletes not tested since {cutoff.date()}:")
+    print(inactive)
+ 
+    # 4. Data sufficiency
+    print("\nData sufficiency:")
+    print(f"Total rows for selected metrics: {len(df)}")
+    print(f"Total athletes: {df['playername'].nunique()}")
+    print(f"Median rows per athlete: {df.groupby('playername').size().median():.2f}")
+ 
+# ------------------------------------------------
+# 2.2 — LONG → WIDE TRANSFORMATION
+# ------------------------------------------------
+ 
+def long_to_wide_for_player(player_name, selected_metrics):
+    metrics_sql = _build_metrics_in_clause(selected_metrics)
+ 
+    q = f"""
+        SELECT timestamp, metric, {VALUE_COL} AS value
+        FROM {TABLE}
+        WHERE playername = :p
+          AND metric IN {metrics_sql}
+        ORDER BY timestamp;
+    """
+    df = pd.read_sql(text(q), engine, params={"p": player_name})
+ 
+    if df.empty:
+        print(f"\nNo data for player {player_name}.")
+        return pd.DataFrame(columns=["timestamp"] + list(selected_metrics))
+ 
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+ 
+    wide = (
+        df.pivot_table(
+            index="timestamp",
+            columns="metric",
+            values="value",
+            aggfunc="mean"
+        )
+        .reset_index()
+        .sort_values("timestamp")
+    )
+ 
+    # ensure all chosen metrics appear
+    for m in selected_metrics:
+        if m not in wide.columns:
+            wide[m] = pd.NA
+ 
+    return wide[["timestamp"] + list(selected_metrics)]
+ 
+def test_long_to_wide_on_three_players(selected_metrics):
+    print("\n===== PART 2.2 — Long → Wide Transformation =====")
+ 
+    metrics_sql = _build_metrics_in_clause(selected_metrics)
+ 
+    q_players = f"""
+        SELECT DISTINCT playername, team
+        FROM {TABLE}
+        WHERE metric IN {metrics_sql}
+          AND playername IS NOT NULL AND TRIM(playername) <> ''
+          AND team IS NOT NULL AND TRIM(team) <> ''
+        LIMIT 200;
+    """
+    players = pd.read_sql(q_players, engine)
+ 
+    if players.empty:
+        print("No players found for these metrics.")
+        return
+ 
+    sample = players.drop_duplicates("team").head(3)
+ 
+    for _, row in sample.iterrows():
+        p = row["playername"]
+        t = row["team"]
+        wide = long_to_wide_for_player(p, selected_metrics)
+        print(f"\nPlayer: {p} | Team: {t}")
+        print(wide.head())
+ 
+# ------------------------------------------------
+# 2.3 — DERIVED METRICS (TEAM COMPARISON)
+# ------------------------------------------------
+ 
+def derived_metric_analysis(selected_metrics):
+    print("\n===== PART 2.3 — Derived Team Metrics =====")
+ 
+    metrics_sql = _build_metrics_in_clause(selected_metrics)
+ 
+    q = f"""
+        SELECT playername, team, metric, timestamp, {VALUE_COL} AS value
+        FROM {TABLE}
+        WHERE metric IN {metrics_sql}
+          AND playername IS NOT NULL AND TRIM(playername) <> ''
+          AND team IS NOT NULL AND TRIM(team) <> '';
+    """
+    df = pd.read_sql(q, engine)
+ 
+    if df.empty:
+        print("No rows found.")
+        return
+ 
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df.dropna(subset=["value"])
+ 
+    # team averages
+    df["team_metric_mean"] = df.groupby(["team", "metric"])["value"].transform("mean")
+ 
+    # % difference above/below team mean
+    df["pct_diff_team_mean"] = (
+        (df["value"] - df["team_metric_mean"]) / df["team_metric_mean"] * 100
+    )
+ 
+    athlete_summary = (
+        df.groupby(["team", "playername", "metric"])["pct_diff_team_mean"]
+          .mean()
+          .reset_index(name="avg_pct_diff")
+    )
+ 
+    top5 = athlete_summary.sort_values("avg_pct_diff", ascending=False).head(5)
+    bottom5 = athlete_summary.sort_values("avg_pct_diff", ascending=True).head(5)
+ 
+    print("\nTop 5 performers (% ABOVE team mean):")
+    print(top5)
+ 
+    print("\nBottom 5 performers (% BELOW team mean):")
+    print(bottom5)
+ 
+    # optional: z-scores
+    df["z_score"] = df.groupby(["team", "metric"])["value"].transform(
+        lambda x: (x - x.mean()) / (x.std(ddof=0) or 1)
+    )
+ 
+    print("\nExample z-scores (first 10 rows):")
+    print(df[["playername", "team", "metric", "value", "z_score"]].head(10))
+ 
+# ------------------------------------------------
+# Wrapper to run all of Part 2
+# ------------------------------------------------
+ 
+def run_part2(selected_metrics):
+    missing_data_analysis(selected_metrics)
+    test_long_to_wide_on_three_players(selected_metrics)
+    derived_metric_analysis(selected_metrics)
