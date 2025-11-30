@@ -103,7 +103,7 @@ def flag_performance_decline(player_df, decline_threshold=DECLINE_THRESHOLD):
     return pd.DataFrame(rows)
 
 # Identify athletes with metric values that are 2 SD outside the team mean
-def flag_team_norm(df, n_sd=TEAM_NORM_SD):
+def flag_team_norm(df, n_sd = TEAM_NORM_SD):
     rows = []
     for metric in df["metric"].unique():
         metric_sub = df[df["metric"] == metric]
@@ -151,7 +151,7 @@ def flag_asymmetry(df, threshold=ASYMMETRY_THRESHOLD):
 df_flags = pd.concat([
     flag_inactivity(df),
     flag_performance_decline(df),
-    flag_team_norm(df, n_sd=TEAM_NORM_SD),
+    flag_team_norm(df, n_sd = TEAM_NORM_SD),
     flag_asymmetry(df)
 ], ignore_index=True)
 
