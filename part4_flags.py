@@ -37,7 +37,7 @@ SELECTED_METRICS = [
 # Flagging thresholds
 DECLINE_THRESHOLD = 0.10  # 10% drop
 INACTIVITY_DAYS = 30 # inactive if not tested in 30+ days
-TEAM_NORM_SD = 2 # value outside 2 standard deviations from team mean
+TEAM_NORM_SD = 2 # outside 2 standard deviations from team mean
 ASYMMETRY_THRESHOLD = 0.10  # 10% left/right difference
 
 # Load data for selected metrics (only relevant metrics and non-null values)
