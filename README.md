@@ -128,51 +128,54 @@ Aarav
 ![screenshot](screenshots/aaravconnection.png) 
 
 ## How to Run Scripts
-`part1_exploration.py`\
-Connects to the database, performs data quality assessment and metric discovery
-1. 
-2. 
-3. 
+`part1_exploration.py`
+1. Open `part1_exploration.py`
+2. Run python part1_exploration.py in the terminal
+3. Results:
+    - Connects to the database and previews the first 50 rows
+    - Performs data quality assessment (unique athletes/teams, date range, invalid names, multiple sources)
+    - List top 10 metrics for each data source
+    - Show date ranges and record counts for top 10 metrics
 
-`part2_cleaning.py`\
-Cleans data, handles missing values, transforms long to wide format, creates derived metrics
-1. 
-2. 
-3. 
+`part2_cleaning.py`
+1. Open `part2_cleaning.py`
+2. Run python part2_cleaning.py in the terminal
+3. Results should show cleaned dataset that
+    - Filters data for selected metrics
+    - Analyzes missing values, duplicates, and bad timestamps for selected metrics
+    - Transforms long format data to wide format
 
-`part3_viz_comparison.ipynb`\
-Compares teams and metrics, performs statistical analysis
-1. 
-2. 
-3. 
+`part3_viz_comparison.ipynb`
+1. Open `part3_viz_individual.ipynb`
+2. Run all cells to:
+    - Load two selected athletes
+    - Create line plots of their metrics over the last 6–12 months
+    - Identify their best and worst performance dates
+    - Calculate simple trend lines to see improvement or decline
 
-`part3_viz_individual.ipynb`\
-Plots individual athlete trends over time
-- Open `part3_viz_individual.ipynb`.
+`part3_viz_individual.ipynb`
+1. Open `part3_viz_comparison.ipynb`
   - Run all cells to:
-    - Load two selected athletes.
-    - Create line plots of their metrics over the last 6–12 months.
-    - Identify their best and worst performance dates.
-    - Calculate simple trend lines to see improvement or decline.
-
-- Open `part3_viz_comparison.ipynb`.
-  - Run all cells to:
-    - Create box plots comparing the selected metric between two teams.
-    - Run a t-test (or similar) to check for statistical differences.
-    - Plot testing frequency over time by team.
+    - Create box plots comparing the selected metric between two teams
+    - Run a t-test (or similar) to check for statistical differences
+    - Plot testing frequency over time by team
 
 - In the same `part3_viz_comparison.ipynb`, run the dashboard section (Part 3.3 cells).
   - This will:
-    - Summarize total tests per month.
-    - Show a stacked bar chart by data source.
-    - Highlight gaps or unusual patterns in data collection.
+    - Summarize total tests per month
+    - Show a stacked bar chart by data source
+    - Highlight gaps or unusual patterns in data collection
 
-
-`part4_flags.py`\
-Implements performance monitoring flag system, outputs flagged athletes
-1. 
-2. 
-3. 
+`part4_flags.py`
+1. Open `part4_flags.py`
+2. Run python part4_flags.py in the terminal
+3. Results:
+    - Applys flags for: 
+        - inactivity (>30 days)
+        - performance decline (>10%)
+        - outside team norms (2 SD)
+        - asymmetry (>10%)
+    - Exports flagged athletes to `part4_flagged_athletes.csv`
 
 
 

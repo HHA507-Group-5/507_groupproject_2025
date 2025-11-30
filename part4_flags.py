@@ -37,6 +37,7 @@ SELECTED_METRICS = [
 # Flagging thresholds
 DECLINE_THRESHOLD = 0.10  # 10% drop
 INACTIVITY_DAYS = 30 # inactive if not tested in 30+ days
+TEAM_NORM_SD = 2 # value outside 2 standard deviations from team mean
 ASYMMETRY_THRESHOLD = 0.10  # 10% left/right difference
 
 # Load data for selected metrics (only relevant metrics and non-null values)
@@ -53,7 +54,6 @@ df = pd.read_sql(query, engine)
 
 # Makes sure timestamp column is in datetime format
 df["timestamp"] = pd.to_datetime(df["timestamp"])
-
 
 # Flagging functions:
 
@@ -102,14 +102,14 @@ def flag_performance_decline(player_df, decline_threshold=DECLINE_THRESHOLD):
                 })
     return pd.DataFrame(rows)
 
-# Identify athletes with metric values that are outside the team mean
-def flag_team_norm(df, n_sd=2):
+# Identify athletes with metric values that are 2 SD outside the team mean
+def flag_team_norm(df, n_sd=TEAM_NORM_SD):
     rows = []
     for metric in df["metric"].unique():
         metric_sub = df[df["metric"] == metric]
         team_mean = metric_sub.groupby("team")["value"].transform("mean")
         team_std = metric_sub.groupby("team")["value"].transform("std").replace(0, np.nan)
-        outliers = ((metric_sub["value"] - team_mean).abs() > n_sd*team_std)
+        outliers = ((metric_sub["value"] - team_mean).abs() > n_sd * team_std)
         flagged = metric_sub[outliers]
         for _, row in flagged.iterrows():
             rows.append({
@@ -151,7 +151,7 @@ def flag_asymmetry(df, threshold=ASYMMETRY_THRESHOLD):
 df_flags = pd.concat([
     flag_inactivity(df),
     flag_performance_decline(df),
-    flag_team_norm(df),
+    flag_team_norm(df, n_sd=TEAM_NORM_SD),
     flag_asymmetry(df)
 ], ignore_index=True)
 
