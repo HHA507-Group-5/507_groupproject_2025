@@ -148,9 +148,25 @@ Compares teams and metrics, performs statistical analysis
 
 `part3_viz_individual.ipynb`\
 Plots individual athlete trends over time
-1. 
-2. 
-3. 
+- Open `part3_viz_individual.ipynb`.
+  - Run all cells to:
+    - Load two selected athletes.
+    - Create line plots of their metrics over the last 6–12 months.
+    - Identify their best and worst performance dates.
+    - Calculate simple trend lines to see improvement or decline.
+
+- Open `part3_viz_comparison.ipynb`.
+  - Run all cells to:
+    - Create box plots comparing the selected metric between two teams.
+    - Run a t-test (or similar) to check for statistical differences.
+    - Plot testing frequency over time by team.
+
+- In the same `part3_viz_comparison.ipynb`, run the dashboard section (Part 3.3 cells).
+  - This will:
+    - Summarize total tests per month.
+    - Show a stacked bar chart by data source.
+    - Highlight gaps or unusual patterns in data collection.
+
 
 `part4_flags.py`\
 Implements performance monitoring flag system, outputs flagged athletes
